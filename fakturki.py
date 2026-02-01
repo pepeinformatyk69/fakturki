@@ -90,6 +90,12 @@ def wyslij_email(pdf_faktura, miesiac_rok, dodatkowy_plik=None):
     except Exception as e:
         st.error(f"Błąd wysyłki e-mail: {e}"); return False
 
+def wyswietl_pdf(pdf_content):
+    # Stabilniejsza metoda podglądu dla Chrome/Streamlit Cloud
+    base64_pdf = base64.b64encode(pdf_content).decode('utf-8')
+    pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="1000px"><p>Twoja przeglądarka nie może wyświetlić PDF. <a href="data:application/pdf;base64,{base64_pdf}" download="faktura.pdf">Pobierz go tutaj</a>.</p></object>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
+
 # --- INTERFEJS ---
 st.set_page_config(page_title="iFirma Automatyzacja", layout="wide", page_icon="🚀")
 tryb = st.sidebar.radio("Nawigacja", ["📤 Wystaw dla Falck", "📥 Dodaj Koszt"])
@@ -104,8 +110,8 @@ if tryb == "📤 Wystaw dla Falck":
     for idx, r in enumerate(st.session_state.rows_f):
         c1, c2, c3, c4 = st.columns([4, 1, 2, 0.5])
         u = c1.text_input("Usługa", r['u'], key=f"u_{idx}")
-        h = c2.number_input("h", r['h'], key=f"h_{idx}")
-        s = c3.number_input("Stawka", r['c'], key=f"s_{idx}")
+        h = c2.number_input("h", r['h'], key=f"h_{idx}", step=1.0)
+        s = c3.number_input("Stawka", r['c'], key=f"s_{idx}", step=1.0)
         st.session_state.rows_f[idx] = {"u": u, "h": h, "c": s}
         if c4.button("➕", key=f"btn_{idx}"): 
             st.session_state.rows_f.append({"u": "", "h": 0.0, "c": 0.0})
@@ -122,7 +128,8 @@ if tryb == "📤 Wystaw dla Falck":
         with st.spinner("Komunikacja z iFirma..."):
             pay = {"Zaplacono": 0, "LiczOd": "NET", "DataWystawienia": d_f.isoformat(), "DataSprzedazy": d_f.isoformat(), "FormatDatySprzedazy": "MSC", "SposobZaplaty": "PRZ", "TerminPlatnosci": (d_f + datetime.timedelta(days=10)).isoformat(), "Pozycje": akt_poz, "Kontrahent": {"Nazwa": DANE_FALCK["nazwa"], "NIP": DANE_FALCK["nip"], "Ulica": DANE_FALCK["ulica"], "KodPocztowy": DANE_FALCK["kod"], "Miejscowosc": DANE_FALCK["miasto"]}, "RodzajPodpisuOdbiorcy": "BWO", "MiejsceWystawienia": "Warszawa"}
             json_b = json.dumps(pay, separators=(',', ':'))
-            res = requests.post("https://www.ifirma.pl/iapi/fakturakraj.json", data=json_b, headers={"Content-Type": "application/json", "Authentication": get_auth_header(C["USER_LOGIN"], C["KEY_FAKTURA"], json_b)})
+            auth = get_auth_header(C["USER_LOGIN"], C["KEY_FAKTURA"], json_b)
+            res = requests.post("https://www.ifirma.pl/iapi/fakturakraj.json", data=json_b, headers={"Content-Type": "application/json", "Authentication": auth})
             
             if res.status_code == 201 or (res.json().get('response', {}).get('Kod') == 0):
                 f_id = res.json()['response']['Identyfikator']
@@ -148,12 +155,11 @@ if tryb == "📤 Wystaw dla Falck":
         st.divider()
         st.subheader("👁️ Podgląd wygenerowanej faktury")
         
-        # Bezpieczniejszy podgląd dla Chrome
-        base64_pdf = base64.b64encode(st.session_state["pdf_f"]).decode('utf-8')
-        pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="1000" type="application/pdf">'
-        st.markdown(pdf_display, unsafe_allow_html=True)
-        
+        # Przycisk pobierania jako pewny backup
         st.download_button("💾 Pobierz kopię PDF", data=st.session_state["pdf_f"], file_name=f"Faktura_{m_t}.pdf", mime="application/pdf")
+        
+        # Wyświetlanie podglądu (próba nr 2 z tagiem <object>)
+        wyswietl_pdf(st.session_state["pdf_f"])
 
 elif tryb == "📥 Dodaj Koszt":
     st.title("📥 Rejestracja Wydatku")
