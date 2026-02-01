@@ -28,7 +28,6 @@ if 'config' not in st.session_state:
 # --- PANEL KONFIGURACJI ---
 if st.session_state.config is None or st.sidebar.toggle("⚙️ Ustawienia API/Email", False):
     st.title("⚙️ Konfiguracja Danych")
-    st.info("Wprowadź dane raz – zostaną zapisane w config.json (lub w sesji chmury).")
     with st.form("config_form"):
         c1, c2 = st.columns(2)
         old = st.session_state.config or {}
@@ -47,15 +46,13 @@ if st.session_state.config is None or st.sidebar.toggle("⚙️ Ustawienia API/E
             save_config(new_conf)
     st.stop()
 
-# --- PRZYPISANIE ZMIENNYCH ---
+# PRZYPISANIE ZMIENNYCH
 C = st.session_state.config
-API_URL = "https://www.ifirma.pl/iapi/fakturakraj.json"
-WYDATEK_URL = "https://www.ifirma.pl/iapi/wydatek.json"
 DANE_FALCK = {"nazwa": "Falck Digital Technology Poland Spółka Z Ograniczoną Odpowiedzialnością", "nip": "5272997346", "ulica": "Prosta 67", "kod": "00-838", "miasto": "Warszawa"}
 
 # --- FUNKCJE POMOCNICZE ---
 def get_auth_header(user, key, content, custom_url=None, key_type="faktura"):
-    url = custom_url if custom_url else API_URL
+    url = custom_url if custom_url else "https://www.ifirma.pl/iapi/fakturakraj.json"
     message = f"{url}{user}{key_type}{content}".encode('utf-8')
     key_bytes = bytes.fromhex(key.strip())
     return f"IAPIS user={user}, hmac-sha1={hmac.new(key_bytes, message, hashlib.sha1).hexdigest()}"
@@ -73,7 +70,7 @@ def wyslij_email(pdf_faktura, miesiac_rok, dodatkowy_plik=None):
         msg.attach(MIMEText(f"Witam,\n\nW załączniku faktura za {miesiac_rok} oraz raport.\n\nPozdrawiam,\nFilip", 'plain', 'utf-8'))
         p1 = MIMEBase('application', "pdf")
         p1.set_payload(pdf_faktura); encoders.encode_base64(p1)
-        p1.add_header('Content-Disposition', f'attachment; filename="Filip Lubecki - faktura {miesiac_rok}.pdf"')
+        p1.add_header('Content-Disposition', f'attachment; filename="Faktura_{miesiac_rok}.pdf"')
         msg.attach(p1)
         if dodatkowy_plik:
             p2 = MIMEBase('application', "octet-stream")
@@ -88,64 +85,87 @@ def wyslij_email(pdf_faktura, miesiac_rok, dodatkowy_plik=None):
 
 def wyswietl_pdf(pdf_content):
     b64 = base64.b64encode(pdf_content).decode('utf-8')
-    st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="800"></iframe>', unsafe_allow_html=True)
+    pdf_display = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="800" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
 
 # --- INTERFEJS ---
-st.set_page_config(page_title="iFirma System", layout="wide")
+st.set_page_config(page_title="iFirma Falck", layout="wide")
 st.sidebar.caption(f"Zalogowany: {C['USER_LOGIN']}")
 tryb = st.sidebar.radio("Nawigacja", ["📤 Falck (Wystaw)", "📥 Wydatki (Koszty)"])
 
 if tryb == "📤 Falck (Wystaw)":
     st.title("🚀 Faktura dla Falck Digital")
-    if 'rows_f' not in st.session_state: st.session_state.rows_f = [{"u": "Usługi programistyczne", "h": 160.0, "c": 170.0}]
+    
+    if 'rows_f' not in st.session_state: 
+        st.session_state.rows_f = [{"u": "Usługi programistyczne", "h": 160.0, "c": 170.0}]
     
     akt_poz = []
-    # Logika dynamicznych wierszy z PLUSEM ➕
     for idx, r in enumerate(st.session_state.rows_f):
         c1, c2, c3, c4 = st.columns([4, 1, 2, 0.5])
         u = c1.text_input("Usługa", r['u'], key=f"u_{idx}")
         h = c2.number_input("h", r['h'], key=f"h_{idx}")
         s = c3.number_input("Stawka", r['c'], key=f"s_{idx}")
-        st.session_state.rows_f[idx] = {"u": u, "h": h, "c": s} # Zapisz zmiany w sesji
-        
+        st.session_state.rows_f[idx] = {"u": u, "h": h, "c": s}
         if c4.button("➕", key=f"btn_{idx}"): 
             st.session_state.rows_f.append({"u": "", "h": 0.0, "c": 0.0})
             st.rerun()
         akt_poz.append({"StawkaVat": 0.23, "Ilosc": h, "CenaJednostkowa": s, "NazwaPelna": u, "Jednostka": "h", "TypStawkiVat": "PRC", "StawkaRyczaltu": 0.12})
 
-    dz = datetime.date.today(); m_pl = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"]
-    m_t = f"{m_pl[dz.month-1]} {dz.year}"; ost = calendar.monthrange(dz.year, dz.month)[1]; d_f = datetime.date(dz.year, dz.month, ost)
+    dz = datetime.date.today()
+    m_pl = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"]
+    m_t = f"{m_pl[dz.month-1]} {dz.year}"
+    ost = calendar.monthrange(dz.year, dz.month)[1]
+    d_f = datetime.date(dz.year, dz.month, ost)
 
     if st.button("🚀 WYSTAW I POBIERZ PDF", type="primary", use_container_width=True):
         pay = {"Zaplacono": 0, "LiczOd": "NET", "DataWystawienia": d_f.isoformat(), "DataSprzedazy": d_f.isoformat(), "FormatDatySprzedazy": "MSC", "SposobZaplaty": "PRZ", "TerminPlatnosci": (d_f + datetime.timedelta(days=10)).isoformat(), "Pozycje": akt_poz, "Kontrahent": {"Nazwa": DANE_FALCK["nazwa"], "NIP": DANE_FALCK["nip"], "Ulica": DANE_FALCK["ulica"], "KodPocztowy": DANE_FALCK["kod"], "Miejscowosc": DANE_FALCK["miasto"]}, "RodzajPodpisuOdbiorcy": "BWO", "MiejsceWystawienia": "Warszawa"}
         json_b = json.dumps(pay, separators=(',', ':'))
-        res = requests.post(API_URL, data=json_b, headers={"Content-Type": "application/json", "Authentication": get_auth_header(C["USER_LOGIN"], C["KEY_FAKTURA"], json_b)})
-        if res.status_code == 201:
-            st.session_state["pdf_f"] = pobierz_pdf(res.json()['response']['Identyfikator']); st.success("✅ Wystawiono!")
-        else: st.error(res.json())
+        auth = get_auth_header(C["USER_LOGIN"], C["KEY_FAKTURA"], json_b)
+        res = requests.post("https://www.ifirma.pl/iapi/fakturakraj.json", data=json_b, headers={"Content-Type": "application/json", "Authentication": auth})
+        
+        if res.status_code == 201 or (res.json().get('response', {}).get('Kod') == 0):
+            st.session_state["pdf_f"] = pobierz_pdf(res.json()['response']['Identyfikator'])
+            st.success(f"✅ Faktura została pomyślnie wystawiona! (ID: {res.json()['response']['Identyfikator']})")
+        else:
+            st.error(f"❌ Błąd iFirma: {res.json().get('response', {}).get('Informacja', 'Nieznany błąd')}")
 
     if "pdf_f" in st.session_state:
         st.divider()
-        cf, cm = st.columns([1, 1])
-        with cf: rap = st.file_uploader("📎 Załącz raport (z pulpitu)", type=None)
-        with cm:
-            if st.button("📧 WYŚLIJ MAIL (KOMPLET)", use_container_width=True):
-                if wyslij_email(st.session_state["pdf_f"], m_t, rap): st.success("📩 Wysłano!")
+        st.subheader("📧 Wysyłka i Podgląd")
+        col_f, col_m = st.columns([1, 1])
+        with col_f:
+            rap = st.file_uploader("📎 Dołącz raport z pulpitu", type=None)
+        with col_m:
+            st.write(" ") # wyrównanie
+            if st.button("📧 WYŚLIJ KOMPLET DO FALCK", use_container_width=True, type="primary"):
+                if wyslij_email(st.session_state["pdf_f"], m_t, rap):
+                    st.success("📩 E-mail został wysłany do Falck!")
+        
+        st.divider()
         wyswietl_pdf(st.session_state["pdf_f"])
 
 elif tryb == "📥 Wydatki (Koszty)":
     st.title("📥 Dodawanie Wydatków")
     up_f = st.file_uploader("Wrzuć plik kosztowy", type=["pdf", "jpg", "png"])
     if up_f:
-        c1, c2 = st.columns([1, 1]); f_b = up_f.read()
-        with c1: wyswietl_pdf(f_b) if up_f.type=="application/pdf" else st.image(f_b)
+        c1, c2 = st.columns([1, 1])
+        f_b = up_f.read()
+        with c1:
+            st.subheader("👁️ Podgląd")
+            wyswietl_pdf(f_b) if up_f.type=="application/pdf" else st.image(f_b)
         with c2:
-            n_d = st.text_input("Nr faktury"); k_n = st.text_input("Sprzedawca"); brut = st.number_input("Brutto"); net = st.number_input("Netto")
-            if st.button("🚀 Wyślij do iFirma", type="primary", use_container_width=True):
+            st.subheader("🧾 Szczegóły")
+            n_d = st.text_input("Nr faktury")
+            k_n = st.text_input("Sprzedawca")
+            brut = st.number_input("Brutto", step=0.01)
+            net = st.number_input("Netto", step=0.01)
+            if st.button("🚀 Wyślij wydatek do iFirma", type="primary", use_container_width=True):
                 enc = base64.b64encode(f_b).decode('utf-8')
-                pay_w = {"NumerDokumentu": n_d, "DataWystawienia": datetime.date.today().isoformat(), "NazwaWydatku": f"Zakup: {k_n}", "KwotaBrutto": brut, "KwotaNetto": net, "Zalacznik": {"Nazwa": up_f.name, "Zawartosc": enc}}
+                pay_w = {"NumerDokumentu": n_d, "DataWystawienia": dz.isoformat(), "NazwaWydatku": f"Zakup: {k_n}", "KwotaBrutto": brut, "KwotaNetto": net, "Zalacznik": {"Nazwa": up_f.name, "Zawartosc": enc}}
                 json_w = json.dumps(pay_w, separators=(',', ':'))
-                auth_w = get_auth_header(C["USER_LOGIN"], C["KEY_WYDATEK"], json_w, custom_url=WYDATEK_URL, key_type="wydatek")
-                res_w = requests.post(WYDATEK_URL, data=json_w, headers={"Content-Type": "application/json", "Authentication": auth_w})
-                if res_w.status_code == 201: st.success("✅ Dodano koszt!")
-                else: st.error(f"Błąd: {res_w.text}")
+                auth_w = get_auth_header(C["USER_LOGIN"], C["KEY_WYDATEK"], json_w, custom_url="https://www.ifirma.pl/iapi/wydatek.json", key_type="wydatek")
+                res_w = requests.post("https://www.ifirma.pl/iapi/wydatek.json", data=json_w, headers={"Content-Type": "application/json", "Authentication": auth_w})
+                if res_w.status_code == 201:
+                    st.success("✅ Wydatek dodany do iFirmy!")
+                else:
+                    st.error(f"❌ Błąd: {res_w.text}")
